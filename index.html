@@ -1,0 +1,666 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Iron Log">
+  <meta name="theme-color" content="#0d0d0d">
+  <link rel="manifest" href="/manifest.json">
+  <link rel="apple-touch-icon" href="/icon-192.png">
+  <title>Iron Log</title>
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+    html,body{height:100%;background:#0d0d0d;overscroll-behavior:none}
+    body{color:#fff;font-family:Georgia,'Times New Roman',serif}
+    #root{max-width:430px;margin:0 auto;min-height:100vh}
+    button{cursor:pointer;font-family:inherit}
+    button:active{opacity:.75}
+    ::-webkit-scrollbar{display:none}
+  </style>
+  <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore-compat.js"></script>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body>
+<div id="root"><div style="display:flex;align-items:center;justify-content:center;height:100vh;font-family:monospace;color:#f97316;letter-spacing:6px;font-size:13px">LOADING...</div></div>
+<script>
+  if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('/sw.js').catch(()=>{}));
+  firebase.initializeApp({
+    apiKey:"AIzaSyCyUR2dXXjSSn37nYUIVr_IKto2u26YSXY",
+    authDomain:"iron-log-68ee7.firebaseapp.com",
+    projectId:"iron-log-68ee7",
+    storageBucket:"iron-log-68ee7.firebasestorage.app",
+    messagingSenderId:"662992481269",
+    appId:"1:662992481269:web:62e2fbf4dc95aa75c18ebc"
+  });
+</script>
+<script type="text/babel">
+const {useState,useEffect,useRef}=React;
+const auth=firebase.auth();
+const db=firebase.firestore();
+
+const PLAN=[
+  {name:"Day 1 — Upper Push",tag:"UPPER PUSH",shortTag:"Push",exercises:[
+    {name:"Incline Chest Press",      sets:4,rMin:8, rMax:10,w:50, inc:5,  rest:120,cue:"Control the lowering phase"},
+    {name:"Cable Lateral Raise",      sets:3,rMin:12,rMax:15,w:10, inc:2.5,rest:60, cue:"Lead with elbow, not hand"},
+    {name:"Cable Overhead Tricep Ext",sets:3,rMin:12,rMax:12,w:20, inc:2.5,rest:60, cue:"Full stretch at the bottom"},
+    {name:"Cable Curl",               sets:3,rMin:12,rMax:12,w:25, inc:2.5,rest:60, cue:"3 second lowering phase"},
+    {name:"Cable Hammer Curl",        sets:3,rMin:12,rMax:12,w:20, inc:2.5,rest:60, cue:"Pause & squeeze at peak"},
+  ]},
+  {name:"Day 2 — Lower Quad/Glute",tag:"LOWER QUAD",shortTag:"Quad",exercises:[
+    {name:"Deadlift",             sets:4,rMin:6, rMax:8, w:95,inc:5,rest:180,cue:"Flat back, drive through heels"},
+    {name:"Leg Extension Machine",sets:3,rMin:12,rMax:15,w:40,inc:5,rest:90, cue:"Hold at top for 1-2 seconds"},
+    {name:"Leg Curl Machine",     sets:3,rMin:12,rMax:15,w:40,inc:5,rest:90, cue:"Control the lowering fully"},
+    {name:"Standing Calf Raise",  sets:4,rMin:15,rMax:20,w:60,inc:5,rest:60, cue:"Pause at the bottom stretch"},
+  ]},
+  {name:"Day 3 — Upper Pull",tag:"UPPER PULL",shortTag:"Pull",exercises:[
+    {name:"Lat Pulldown Machine",sets:4,rMin:8, rMax:10,w:60,inc:5,  rest:120,cue:"Pull to upper chest, squeeze"},
+    {name:"Seated Cable Row",    sets:4,rMin:8, rMax:10,w:50,inc:5,  rest:120,cue:"Lead with elbows, not hands"},
+    {name:"Cable Face Pull",     sets:3,rMin:15,rMax:15,w:20,inc:2.5,rest:60, cue:"Pull to forehead, elbows high"},
+    {name:"Cable Reverse Curl",  sets:3,rMin:12,rMax:12,w:20,inc:2.5,rest:60, cue:"Pause & squeeze at peak"},
+  ]},
+  {name:"Day 4 — Lower Ham/Abs",tag:"LOWER HAM",shortTag:"Ham",exercises:[
+    {name:"Leg Press (high/wide)",   sets:4,rMin:10,rMax:12,w:90,inc:5,  rest:150,cue:"Don't lock out knees at top"},
+    {name:"Lying Leg Curl Machine",  sets:4,rMin:10,rMax:12,w:40,inc:5,  rest:90, cue:"Control the lowering fully"},
+    {name:"Seated Calf Raise",       sets:4,rMin:15,rMax:20,w:50,inc:2.5,rest:60, cue:"Pause at the bottom stretch"},
+    {name:"Weighted Decline Sit-up", sets:4,rMin:8, rMax:12,w:10,inc:2.5,rest:60, cue:"Add weight every 1-2 weeks"},
+    {name:"Hanging Leg Raise",       sets:3,rMin:12,rMax:12,w:0, inc:0,  rest:60, cue:"No swinging — control it",bw:true},
+  ]},
+];
+
+const ACC="#f97316",BG="#0d0d0d",CARD="#181818",BDR="#262626",GREEN="#22c55e",BLUE="#3b82f6",RED="#ef4444";
+
+function phaseInfo(count){
+  const wk=Math.floor(count/4)+1;
+  if(wk<=4)return{phase:1,label:"PHASE 1",desc:"Foundation",sets:"2 sets",effort:"Easy effort",wk};
+  if(wk<=8)return{phase:2,label:"PHASE 2",desc:"Building",sets:"3 sets",effort:"Moderate effort",wk};
+  return{phase:3,label:"PHASE 3",desc:"Full Plan",sets:"Full sets",effort:"Train hard",wk};
+}
+function activeSets(max,phase){return phase===1?Math.min(2,max):phase===2?Math.min(3,max):max}
+function repsStr(a,b){return a===b?`${a}`:`${a}-${b}`}
+function fmtRest(s){return s>=60?`${Math.floor(s/60)}m${s%60?`${s%60}s`:""}` :`${s}s`}
+function fmtDate(iso){return new Date(iso).toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric"})}
+function initData(){
+  const weights={},succ={};
+  PLAN.forEach(d=>d.exercises.forEach(e=>{weights[e.name]=e.w;succ[e.name]=0}));
+  return{count:0,nextDay:0,weights,succ,pending:{},firstTime:true,log:[]};
+}
+
+// ─── APP ──────────────────────────────────────────────────────────────────────
+function App(){
+  const [user,setUser]=useState(undefined);
+  const [data,setData]=useState(null);
+  const [screen,setScreen]=useState("home");
+  const [wk,setWk]=useState(null);
+  const [doneInfo,setDoneInfo]=useState(null);
+  const [saving,setSaving]=useState(false);
+
+  useEffect(()=>{
+    auth.getRedirectResult().catch(()=>{});
+    return auth.onAuthStateChanged(u=>setUser(u||null));
+  },[]);
+
+  useEffect(()=>{
+    if(!user)return;
+    const ref=db.collection('users').doc(user.uid).collection('data').doc('workout');
+    return ref.onSnapshot(snap=>{
+      if(snap.exists){const d=snap.data();if(!d.log)d.log=[];setData(d);}
+      else{const f=initData();ref.set(f);setData(f);}
+    },()=>{});
+  },[user]);
+
+  async function persist(d){
+    setData(d);
+    if(user){setSaving(true);try{await db.collection('users').doc(user.uid).collection('data').doc('workout').set(d);}catch(e){}setSaving(false);}
+  }
+
+  async function signIn(){
+    const p=new firebase.auth.GoogleAuthProvider();
+    try{await auth.signInWithPopup(p);}
+    catch(e){if(e.code==='auth/popup-blocked'||e.code==='auth/operation-not-supported-in-this-environment')await auth.signInWithRedirect(p);}
+  }
+
+  async function signOut(){await auth.signOut();setData(null);setScreen("home");}
+
+  function startWorkout(){
+    const d=data;
+    const weights={...d.weights};
+    Object.entries(d.pending).forEach(([n,nw])=>{weights[n]=nw});
+    persist({...d,weights,pending:{},firstTime:false});
+    const{phase}=phaseInfo(d.count);
+    setWk({dayIndex:d.nextDay,phase,exIdx:0,sessionWeights:{...weights},
+      exercises:PLAN[d.nextDay].exercises.map(e=>({...e,weight:weights[e.name],sets:activeSets(e.sets,phase),done:0,feedback:[]})),
+      history:[],startTime:Date.now()});
+    setScreen("workout");
+  }
+
+  function completeSet(feedback){
+    setWk(prev=>{
+      const ex=prev.exercises[prev.exIdx];
+      const newDone=ex.done+1;
+      const exDone=newDone>=ex.sets;
+      const wkDone=exDone&&prev.exIdx+1>=prev.exercises.length;
+      const snap={exIdx:prev.exIdx,exercises:JSON.parse(JSON.stringify(prev.exercises))};
+      const exercises=prev.exercises.map((e,i)=>i===prev.exIdx?{...e,done:newDone,feedback:[...e.feedback,feedback]}:e);
+      if(wkDone){setTimeout(()=>finishWorkout(exercises,prev.sessionWeights,prev.dayIndex,prev.startTime),0);return prev;}
+      return{...prev,exercises,exIdx:exDone?prev.exIdx+1:prev.exIdx,history:[...prev.history,snap]};
+    });
+  }
+
+  function undoSet(){
+    setWk(prev=>{
+      if(!prev.history.length)return prev;
+      const last=prev.history[prev.history.length-1];
+      return{...prev,exIdx:last.exIdx,exercises:last.exercises,history:prev.history.slice(0,-1)};
+    });
+  }
+
+  function adjustWeight(name,delta){
+    setWk(prev=>({...prev,
+      sessionWeights:{...prev.sessionWeights,[name]:Math.max(0,(prev.sessionWeights[name]||0)+delta)},
+      exercises:prev.exercises.map(e=>e.name===name?{...e,weight:Math.max(0,e.weight+delta)}:e),
+    }));
+  }
+
+  function finishWorkout(exercises,sessionWeights,dayIndex,startTime){
+    setData(d=>{
+      const newSucc={...d.succ},newPending={},increases=[];
+      exercises.forEach(ex=>{
+        if(ex.bw||ex.inc===0)return;
+        const hard=ex.feedback.filter(f=>f==="hard").length;
+        const easy=ex.feedback.filter(f=>f==="easy").length;
+        const tot=ex.feedback.length;
+        if(hard>tot/2){newSucc[ex.name]=0;return;}
+        newSucc[ex.name]=(newSucc[ex.name]||0)+1;
+        if(newSucc[ex.name]>=2){
+          const nw=sessionWeights[ex.name]+ex.inc*(easy>tot/2?2:1);
+          newPending[ex.name]=nw;
+          increases.push({name:ex.name,from:sessionWeights[ex.name],to:nw});
+          newSucc[ex.name]=0;
+        }
+      });
+      const dur=Math.round((Date.now()-startTime)/60000);
+      const entry={date:new Date().toISOString(),dayIndex,tag:PLAN[dayIndex].tag,
+        exercises:exercises.map(e=>({name:e.name,sets:e.done,weight:sessionWeights[e.name],rMin:e.rMin,rMax:e.rMax,bw:e.bw})),
+        increases,durationMins:dur};
+      const nd={...d,count:d.count+1,nextDay:(d.nextDay+1)%4,
+        weights:{...d.weights,...sessionWeights},succ:newSucc,
+        pending:{...d.pending,...newPending},log:[entry,...(d.log||[])].slice(0,100)};
+      if(user)db.collection('users').doc(user.uid).collection('data').doc('workout').set(nd).catch(()=>{});
+      setDoneInfo({increases,prevDayIdx:dayIndex,durationMins:dur});
+      setScreen("done");
+      return nd;
+    });
+  }
+
+  function abortWorkout(){
+    if(wk){setData(d=>{const nd={...d,weights:{...d.weights,...wk.sessionWeights}};if(user)db.collection('users').doc(user.uid).collection('data').doc('workout').set(nd).catch(()=>{});return nd;});}
+    setWk(null);setScreen("home");
+  }
+
+  async function resetData(){await persist(initData());setScreen("home");}
+
+  if(user===undefined)return <Loader/>;
+  if(!user)return <AuthScreen onSignIn={signIn}/>;
+  if(!data)return <Loader/>;
+  if(screen==="workout"&&wk)return <WorkoutScreen wk={wk} onComplete={completeSet} onUndo={undoSet} onAdjustWeight={adjustWeight} onAbort={abortWorkout}/>;
+  if(screen==="done")return <DoneScreen data={data} doneInfo={doneInfo} onHome={()=>setScreen("home")}/>;
+  if(screen==="log")return <LogScreen data={data} onBack={()=>setScreen("home")}/>;
+  return <HomeScreen data={data} onStart={startWorkout} onReset={resetData} onLog={()=>setScreen("log")} onSignOut={signOut} saving={saving}/>;
+}
+
+function Loader(){
+  return <div style={{background:BG,minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"monospace",color:ACC,fontSize:13,letterSpacing:6}}>LOADING...</div>;
+}
+
+// ─── AUTH SCREEN ──────────────────────────────────────────────────────────────
+function AuthScreen({onSignIn}){
+  const [loading,setLoading]=useState(false);
+  return(
+    <div style={{background:BG,minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"0 32px",textAlign:"center"}}>
+      <div style={{fontFamily:"monospace",fontSize:10,color:ACC,letterSpacing:8,marginBottom:12}}>IRON LOG</div>
+      <h1 style={{fontSize:42,fontWeight:"bold",marginBottom:10,letterSpacing:-1,lineHeight:1.1}}>Track your<br/>lift.</h1>
+      <p style={{color:"#444",fontSize:14,lineHeight:1.8,marginBottom:52}}>Your workouts, weights, and progress<br/>backed up to your Google account.</p>
+      <button
+        onClick={async()=>{setLoading(true);try{await onSignIn();}catch(e){}setLoading(false);}}
+        disabled={loading}
+        style={{display:"flex",alignItems:"center",gap:12,background:"#fff",color:"#111",border:"none",padding:"16px 24px",borderRadius:4,fontFamily:"monospace",fontSize:12,letterSpacing:3,fontWeight:"bold",width:"100%",maxWidth:300,justifyContent:"center",opacity:loading?.6:1}}
+      >
+        <svg width="18" height="18" viewBox="0 0 48 48">
+          <path fill="#FFC107" d="M43.6 20.1H42V20H24v8h11.3C33.7 32.7 29.3 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 8 3l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 13 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.7-.4-3.9z"/>
+          <path fill="#FF3D00" d="m6.3 14.7 6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 8 3l5.7-5.7C34 6.1 29.3 4 24 4c-7.7 0-14.4 4.3-17.7 10.7z"/>
+          <path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2A12 12 0 0 1 24 36c-5.2 0-9.6-3.3-11.3-7.9l-6.5 5C9.5 39.6 16.2 44 24 44z"/>
+          <path fill="#1976D2" d="M43.6 20.1H42V20H24v8h11.3a12 12 0 0 1-4.1 5.6l6.2 5.2C36.9 39.2 44 34 44 24c0-1.3-.1-2.7-.4-3.9z"/>
+        </svg>
+        {loading?"SIGNING IN...":"SIGN IN WITH GOOGLE"}
+      </button>
+      <p style={{color:"#2a2a2a",fontFamily:"monospace",fontSize:9,letterSpacing:2,marginTop:40,lineHeight:2}}>DATA STORED IN YOUR GOOGLE ACCOUNT<br/>WORKS ON ANY DEVICE · NEVER LOST</p>
+    </div>
+  );
+}
+
+// ─── HOME SCREEN ──────────────────────────────────────────────────────────────
+function HomeScreen({data,onStart,onReset,onLog,onSignOut,saving}){
+  const{phase,label,desc,sets,effort,wk:weekNum}=phaseInfo(data.count);
+  const day=PLAN[data.nextDay];
+  const pending=Object.entries(data.pending);
+  const[showReset,setShowReset]=useState(false);
+  const[showExercises,setShowExercises]=useState(false);
+  const[showMenu,setShowMenu]=useState(false);
+
+  const phaseWeek=phase===1?weekNum:phase===2?weekNum-4:weekNum-8;
+  const phasePct=phase<3?Math.min(100,((phaseWeek-1)/4)*100):100;
+
+  const log=data.log||[];
+  let streak=0;
+  if(log.length>0){streak=1;for(let i=0;i<log.length-1;i++){const diff=(new Date(log[i].date)-new Date(log[i+1].date))/(864e5);if(diff<=5)streak++;else break;}}
+
+  return(
+    <div style={{background:BG,minHeight:"100vh",paddingBottom:56}}>
+      {/* Header */}
+      <div style={{padding:"20px 22px 0",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div style={{fontFamily:"monospace",fontSize:10,color:ACC,letterSpacing:6,fontWeight:"bold"}}>IRON LOG</div>
+        <div style={{display:"flex",gap:18,alignItems:"center"}}>
+          {saving&&<div style={{fontFamily:"monospace",fontSize:8,color:"#444",letterSpacing:2}}>SAVING...</div>}
+          <button onClick={onLog} style={{background:"none",border:"none",color:"#444",fontFamily:"monospace",fontSize:10,letterSpacing:2}}>LOG</button>
+          <button onClick={()=>setShowMenu(m=>!m)} style={{background:"none",border:"none",color:"#333",fontFamily:"monospace",fontSize:16,lineHeight:1}}>⋯</button>
+        </div>
+      </div>
+
+      {showMenu&&(
+        <div style={{margin:"10px 22px 0",background:CARD,border:`1px solid ${BDR}`,borderRadius:6,overflow:"hidden"}}>
+          <button onClick={()=>{setShowReset(true);setShowMenu(false);}} style={{width:"100%",background:"none",border:"none",color:"#888",fontFamily:"monospace",fontSize:11,letterSpacing:2,padding:"14px 16px",textAlign:"left",borderBottom:`1px solid ${BDR}`}}>RESET ALL DATA</button>
+          <button onClick={onSignOut} style={{width:"100%",background:"none",border:"none",color:"#888",fontFamily:"monospace",fontSize:11,letterSpacing:2,padding:"14px 16px",textAlign:"left"}}>SIGN OUT</button>
+        </div>
+      )}
+
+      {showReset&&(
+        <div style={{margin:"12px 22px 0",background:CARD,border:`1px solid #3a1a1a`,borderRadius:4,padding:16}}>
+          <div style={{fontSize:13,color:"#aaa",marginBottom:12}}>Reset all progress and weights?</div>
+          <div style={{display:"flex",gap:10}}>
+            <button onClick={()=>{onReset();setShowReset(false);}} style={{flex:1,background:"#7f1d1d",color:"#fff",border:"none",padding:"10px",fontFamily:"monospace",fontSize:11,letterSpacing:2,borderRadius:3}}>CONFIRM</button>
+            <button onClick={()=>setShowReset(false)} style={{flex:1,background:CARD,color:"#888",border:`1px solid ${BDR}`,padding:"10px",fontFamily:"monospace",fontSize:11,letterSpacing:2,borderRadius:3}}>CANCEL</button>
+          </div>
+        </div>
+      )}
+
+      {/* Dashboard */}
+      <div style={{margin:"20px 22px 0",background:CARD,border:`1px solid ${BDR}`,borderRadius:8,overflow:"hidden"}}>
+        <div style={{padding:"18px 18px 14px",borderBottom:`1px solid ${BDR}`}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}}>
+            <div>
+              <div style={{fontFamily:"monospace",fontSize:9,color:ACC,letterSpacing:4}}>{label} · {desc.toUpperCase()}</div>
+              <div style={{fontSize:22,fontWeight:"bold",marginTop:4}}>Week {weekNum}</div>
+            </div>
+            <div style={{textAlign:"right"}}>
+              <div style={{fontFamily:"monospace",fontSize:22,fontWeight:"bold",color:ACC}}>{data.count}</div>
+              <div style={{fontFamily:"monospace",fontSize:9,color:"#444",letterSpacing:2,marginTop:2}}>SESSIONS</div>
+            </div>
+          </div>
+          {phase<3?(
+            <>
+              <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
+                <div style={{fontFamily:"monospace",fontSize:9,color:"#444",letterSpacing:2}}>{sets} · {effort}</div>
+                <div style={{fontFamily:"monospace",fontSize:9,color:"#444"}}>Week {phaseWeek}/4</div>
+              </div>
+              <div style={{height:4,background:BDR,borderRadius:2}}>
+                <div style={{height:"100%",width:`${phasePct}%`,background:ACC,borderRadius:2,transition:"width .5s"}}/>
+              </div>
+              <div style={{fontFamily:"monospace",fontSize:9,color:"#2a2a2a",marginTop:6,letterSpacing:2}}>
+                {4-phaseWeek} WEEK{4-phaseWeek!==1?"S":""} UNTIL PHASE {phase+1}
+              </div>
+            </>
+          ):(
+            <div style={{fontFamily:"monospace",fontSize:10,color:GREEN,letterSpacing:2}}>FULL PROGRAM UNLOCKED · {effort.toUpperCase()}</div>
+          )}
+        </div>
+        <div style={{display:"flex"}}>
+          {[{label:"STREAK",value:streak||"-",sub:"sessions"},{label:"NEXT",value:day.shortTag,sub:"workout"},{label:"PHASE",value:`${phase}/3`,sub:"progress"}].map((s,i)=>(
+            <div key={s.label} style={{flex:1,padding:"14px 0",textAlign:"center",borderRight:i<2?`1px solid ${BDR}`:"none"}}>
+              <div style={{fontFamily:"monospace",fontSize:9,color:"#444",letterSpacing:3,marginBottom:4}}>{s.label}</div>
+              <div style={{fontFamily:"monospace",fontSize:20,fontWeight:"bold",color:"#ccc"}}>{s.value}</div>
+              <div style={{fontFamily:"monospace",fontSize:8,color:"#333",marginTop:2,letterSpacing:2}}>{s.sub.toUpperCase()}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* First time */}
+      {data.firstTime&&(
+        <div style={{margin:"16px 22px 0",background:"#0d1520",border:`1px solid #1e3a5f`,borderLeft:`3px solid ${BLUE}`,padding:"14px 16px",borderRadius:4}}>
+          <div style={{fontFamily:"monospace",fontSize:9,color:BLUE,letterSpacing:4,marginBottom:8}}>FIRST SESSION TIPS</div>
+          <div style={{fontSize:13,color:"#888",lineHeight:1.7}}>
+            Weights are estimates — <strong style={{color:"#aaa"}}>start lighter than you think.</strong> Tap +/- during the workout to adjust. After each set tap 😅 easy / 💪 good / 😤 hard — the app auto-manages your increases.
+          </div>
+        </div>
+      )}
+
+      {/* Pending increases */}
+      {pending.length>0&&(
+        <div style={{margin:"16px 22px 0",background:"#0f1a0a",border:`1px solid ${GREEN}33`,borderLeft:`3px solid ${GREEN}`,padding:"14px 16px",borderRadius:4}}>
+          <div style={{fontFamily:"monospace",fontSize:9,color:GREEN,letterSpacing:4,marginBottom:10}}>⚡ WEIGHT INCREASES READY</div>
+          {pending.map(([name,nw])=>(
+            <div key={name} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:`1px solid #1a2a12`,fontSize:13}}>
+              <span style={{color:"#aaa"}}>{name}</span>
+              <span style={{fontFamily:"monospace",color:GREEN,fontWeight:"bold"}}>{data.weights[name]} → {nw} lbs</span>
+            </div>
+          ))}
+          <div style={{fontFamily:"monospace",fontSize:10,color:"#555",marginTop:8}}>Applied automatically when you start</div>
+        </div>
+      )}
+
+      {/* Today's workout */}
+      <div style={{margin:"16px 22px 0",border:`1px solid ${BDR}`,borderRadius:8,overflow:"hidden"}}>
+        <div style={{padding:"16px 18px",background:CARD,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div>
+            <div style={{fontFamily:"monospace",fontSize:9,color:"#444",letterSpacing:4,marginBottom:4}}>TODAY'S WORKOUT</div>
+            <div style={{fontSize:22,fontWeight:"bold",letterSpacing:-.3}}>{day.tag}</div>
+            <div style={{fontFamily:"monospace",fontSize:11,color:"#555",marginTop:4}}>
+              {day.exercises.length} exercises · {day.exercises.reduce((a,e)=>a+activeSets(e.sets,phase),0)} sets
+            </div>
+          </div>
+          <button onClick={()=>setShowExercises(s=>!s)} style={{background:"none",border:`1px solid ${BDR}`,color:"#555",fontFamily:"monospace",fontSize:9,letterSpacing:2,padding:"8px 12px",borderRadius:3}}>
+            {showExercises?"HIDE ▲":"PREVIEW ▼"}
+          </button>
+        </div>
+        {showExercises&&(
+          <div style={{borderTop:`1px solid ${BDR}`}}>
+            {day.exercises.map((ex,i)=>{
+              const s=activeSets(ex.sets,phase);
+              return(
+                <div key={ex.name} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"12px 18px",borderBottom:i<day.exercises.length-1?`1px solid ${BDR}`:"none",background:i%2===0?BG:"#111"}}>
+                  <div>
+                    <div style={{fontSize:14,color:"#ddd"}}>{ex.name}</div>
+                    <div style={{fontFamily:"monospace",fontSize:10,color:"#444",marginTop:2}}>{s} × {repsStr(ex.rMin,ex.rMax)} · rest {fmtRest(ex.rest)}</div>
+                  </div>
+                  <div style={{textAlign:"right"}}>
+                    <div style={{fontFamily:"monospace",fontSize:14,color:ex.bw?"#555":ACC,fontWeight:"bold"}}>
+                      {ex.bw?"BW":`${data.weights[ex.name]} lbs`}
+                    </div>
+                    {data.pending[ex.name]&&<div style={{fontFamily:"monospace",fontSize:10,color:GREEN}}>→ {data.pending[ex.name]}</div>}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Start button */}
+      <div style={{padding:"20px 22px 0"}}>
+        <button onClick={onStart} style={{width:"100%",background:ACC,color:"#000",border:"none",padding:"20px",fontFamily:"monospace",fontSize:15,letterSpacing:5,fontWeight:"bold",borderRadius:4}}>
+          START WORKOUT →
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── REST TIMER ───────────────────────────────────────────────────────────────
+function RestTimer({seconds,onDone}){
+  const[remaining,setRemaining]=useState(seconds);
+  const ref=useRef();
+  useEffect(()=>{
+    setRemaining(seconds);
+    ref.current=setInterval(()=>{
+      setRemaining(r=>{if(r<=1){clearInterval(ref.current);onDone();return 0;}return r-1;});
+    },1000);
+    return()=>clearInterval(ref.current);
+  },[seconds]);
+  const pct=((seconds-remaining)/seconds)*100;
+  const mins=Math.floor(remaining/60),secs=remaining%60;
+  const C=2*Math.PI*58;
+  return(
+    <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:20,padding:"32px 0"}}>
+      <div style={{position:"relative",width:136,height:136}}>
+        <svg width="136" height="136" style={{transform:"rotate(-90deg)"}}>
+          <circle cx="68" cy="68" r="58" fill="none" stroke={BDR} strokeWidth="5"/>
+          <circle cx="68" cy="68" r="58" fill="none" stroke={ACC} strokeWidth="5"
+            strokeDasharray={C} strokeDashoffset={C*(1-pct/100)} strokeLinecap="round"
+            style={{transition:"stroke-dashoffset 1s linear"}}/>
+        </svg>
+        <div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}}>
+          <div style={{fontFamily:"monospace",fontSize:34,fontWeight:"bold",color:remaining<=5?RED:"#fff",lineHeight:1}}>
+            {mins>0?`${mins}:${String(secs).padStart(2,"0")}`:secs}
+          </div>
+          <div style={{fontFamily:"monospace",fontSize:9,color:"#555",letterSpacing:3,marginTop:4}}>REST</div>
+        </div>
+      </div>
+      <button onClick={onDone} style={{background:"transparent",border:`1px solid ${BDR}`,color:"#555",fontFamily:"monospace",fontSize:10,letterSpacing:3,padding:"10px 24px",borderRadius:3}}>
+        SKIP →
+      </button>
+    </div>
+  );
+}
+
+// ─── WORKOUT SCREEN ───────────────────────────────────────────────────────────
+function WorkoutScreen({wk,onComplete,onUndo,onAdjustWeight,onAbort}){
+  const[resting,setResting]=useState(false);
+  const[showAbort,setShowAbort]=useState(false);
+  const ex=wk.exercises[wk.exIdx];
+  const isLastSet=ex.done+1>=ex.sets;
+  const isLastEx=wk.exIdx+1>=wk.exercises.length;
+  const pct=((wk.exIdx+(ex.done/ex.sets))/wk.exercises.length)*100;
+
+  function handleFeedback(fb){onComplete(fb);if(!(isLastSet&&isLastEx))setResting(true);}
+
+  if(showAbort)return(
+    <div style={{background:BG,minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"0 32px",textAlign:"center"}}>
+      <div style={{fontSize:22,fontWeight:"bold",marginBottom:12}}>End workout early?</div>
+      <div style={{fontFamily:"monospace",fontSize:11,color:"#555",marginBottom:32,lineHeight:1.8}}>Weight changes will be saved.<br/>This session won't count toward increases.</div>
+      <div style={{display:"flex",gap:12,width:"100%"}}>
+        <button onClick={onAbort} style={{flex:1,background:"#7f1d1d",color:"#fff",border:"none",padding:"16px",fontFamily:"monospace",fontSize:11,letterSpacing:2,borderRadius:3}}>END SESSION</button>
+        <button onClick={()=>setShowAbort(false)} style={{flex:1,background:CARD,color:"#888",border:`1px solid ${BDR}`,padding:"16px",fontFamily:"monospace",fontSize:11,letterSpacing:2,borderRadius:3}}>KEEP GOING</button>
+      </div>
+    </div>
+  );
+
+  return(
+    <div style={{background:BG,minHeight:"100vh",display:"flex",flexDirection:"column"}}>
+      {/* Progress bar */}
+      <div style={{padding:"14px 22px 12px",borderBottom:`1px solid ${BDR}`,flexShrink:0}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+          <button onClick={()=>setShowAbort(true)} style={{background:"none",border:"none",color:"#3a3a3a",fontFamily:"monospace",fontSize:10,letterSpacing:2,padding:0}}>✕ END</button>
+          <div style={{fontFamily:"monospace",fontSize:9,color:"#444",letterSpacing:3}}>{PLAN[wk.dayIndex].tag}</div>
+          <div style={{fontFamily:"monospace",fontSize:9,color:"#444"}}>{wk.exIdx+1}/{wk.exercises.length}</div>
+        </div>
+        <div style={{height:3,background:BDR,borderRadius:2}}>
+          <div style={{height:"100%",background:ACC,width:`${pct}%`,borderRadius:2,transition:"width .4s"}}/>
+        </div>
+        <div style={{display:"flex",gap:5,marginTop:8}}>
+          {wk.exercises.map((e,i)=>(
+            <div key={e.name} style={{flex:1,height:3,borderRadius:1,background:i<wk.exIdx?ACC:i===wk.exIdx?`${ACC}88`:BDR,transition:"background .3s"}}/>
+          ))}
+        </div>
+      </div>
+
+      <div style={{flex:1,padding:"22px 22px 0",display:"flex",flexDirection:"column",maxWidth:430,width:"100%",margin:"0 auto"}}>
+        {resting?(
+          <>
+            <div>
+              <div style={{fontFamily:"monospace",fontSize:9,color:"#444",letterSpacing:4,marginBottom:6}}>RESTING</div>
+              <h2 style={{margin:0,fontSize:24,fontWeight:"bold",color:"#666"}}>{ex.name}</h2>
+              {ex.done<ex.sets
+                ?<div style={{fontFamily:"monospace",fontSize:11,color:"#444",marginTop:6}}>Set {ex.done+1} of {ex.sets} next</div>
+                :wk.exIdx+1<wk.exercises.length
+                  ?<div style={{fontFamily:"monospace",fontSize:11,color:ACC,marginTop:6}}>Next: {wk.exercises[wk.exIdx+1].name}</div>
+                  :null}
+            </div>
+            <RestTimer seconds={ex.rest} onDone={()=>setResting(false)}/>
+          </>
+        ):(
+          <>
+            <div style={{fontFamily:"monospace",fontSize:9,color:ACC,letterSpacing:4,marginBottom:8}}>SET {ex.done+1} OF {ex.sets}</div>
+            <h2 style={{margin:0,fontSize:28,fontWeight:"bold",lineHeight:1.15,letterSpacing:-.5}}>{ex.name}</h2>
+
+            {/* Set dots */}
+            <div style={{display:"flex",gap:10,marginTop:14,alignItems:"center"}}>
+              {Array.from({length:ex.sets}).map((_,i)=>{
+                const fb=ex.feedback[i];
+                const bg=fb==="easy"?BLUE:fb==="good"?GREEN:fb==="hard"?RED:i===ex.done?"#fff":BDR;
+                return <div key={i} style={{width:13,height:13,borderRadius:"50%",background:bg,boxShadow:i===ex.done?`0 0 10px #fff4`:"none",transition:"all .2s",fontSize:8,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                  {fb==="easy"?"😅":fb==="good"?"💪":fb==="hard"?"😤":""}
+                </div>;
+              })}
+            </div>
+
+            {/* Weight */}
+            <div style={{marginTop:28,display:"flex",alignItems:"center",justifyContent:"center",gap:16}}>
+              {ex.bw?(
+                <div style={{textAlign:"center",padding:"12px 0"}}><div style={{fontFamily:"monospace",fontSize:20,color:"#555",letterSpacing:4}}>BODYWEIGHT</div></div>
+              ):(
+                <>
+                  <button onClick={()=>onAdjustWeight(ex.name,-ex.inc)} style={{width:52,height:52,background:CARD,border:`1px solid ${BDR}`,color:"#777",fontSize:24,borderRadius:4,fontFamily:"monospace",lineHeight:1}}>−</button>
+                  <div style={{textAlign:"center",minWidth:128}}>
+                    <div style={{fontFamily:"monospace",fontSize:56,fontWeight:"bold",color:ACC,lineHeight:1}}>{ex.weight}</div>
+                    <div style={{fontFamily:"monospace",fontSize:10,color:"#444",marginTop:4,letterSpacing:4}}>LBS · ±{ex.inc}</div>
+                  </div>
+                  <button onClick={()=>onAdjustWeight(ex.name,ex.inc)} style={{width:52,height:52,background:CARD,border:`1px solid ${BDR}`,color:"#777",fontSize:24,borderRadius:4,fontFamily:"monospace",lineHeight:1}}>+</button>
+                </>
+              )}
+            </div>
+            <div style={{textAlign:"center",marginTop:8,fontFamily:"monospace",fontSize:13,color:"#555",letterSpacing:2}}>{repsStr(ex.rMin,ex.rMax)} REPS</div>
+
+            {/* Cue */}
+            <div style={{marginTop:18,background:CARD,border:`1px solid ${BDR}`,borderRadius:6,padding:"12px 14px",display:"flex",gap:10,alignItems:"flex-start"}}>
+              <span style={{fontSize:14,marginTop:1}}>💡</span>
+              <span style={{fontFamily:"monospace",fontSize:12,color:"#555",lineHeight:1.5}}>{ex.cue}</span>
+            </div>
+            <div style={{fontFamily:"monospace",fontSize:10,color:"#2a2a2a",textAlign:"center",marginTop:10,letterSpacing:2}}>REST AFTER: {fmtRest(ex.rest)}</div>
+
+            <div style={{flex:1}}/>
+
+            {/* Feedback */}
+            <div style={{paddingBottom:28}}>
+              <div style={{fontFamily:"monospace",fontSize:9,color:"#3a3a3a",letterSpacing:4,textAlign:"center",marginBottom:12}}>HOW WAS THAT SET?</div>
+              <div style={{display:"flex",gap:10,marginBottom:10}}>
+                <button onClick={()=>handleFeedback("easy")} style={{flex:1,background:"#0d1520",border:`1px solid #1e3a5f`,color:BLUE,padding:"15px 6px",fontFamily:"monospace",fontSize:20,borderRadius:4,display:"flex",flexDirection:"column",alignItems:"center",gap:6}}>
+                  😅<span style={{fontSize:9,letterSpacing:2}}>EASY</span>
+                </button>
+                <button onClick={()=>handleFeedback("good")} style={{flex:1.4,background:"#0a1a0f",border:`1px solid ${GREEN}44`,color:GREEN,padding:"15px 6px",fontFamily:"monospace",fontSize:24,borderRadius:4,display:"flex",flexDirection:"column",alignItems:"center",gap:6}}>
+                  💪<span style={{fontSize:9,letterSpacing:2}}>GOOD</span>
+                </button>
+                <button onClick={()=>handleFeedback("hard")} style={{flex:1,background:"#1a0a0a",border:`1px solid ${RED}44`,color:RED,padding:"15px 6px",fontFamily:"monospace",fontSize:20,borderRadius:4,display:"flex",flexDirection:"column",alignItems:"center",gap:6}}>
+                  😤<span style={{fontSize:9,letterSpacing:2}}>HARD</span>
+                </button>
+              </div>
+              {wk.history.length>0&&(
+                <button onClick={onUndo} style={{width:"100%",background:"transparent",border:`1px solid ${BDR}`,color:"#444",padding:"11px",fontFamily:"monospace",fontSize:10,letterSpacing:3,borderRadius:3}}>
+                  ↩ UNDO LAST SET
+                </button>
+              )}
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── LOG SCREEN ───────────────────────────────────────────────────────────────
+function LogScreen({data,onBack}){
+  const[expanded,setExpanded]=useState(null);
+  const log=data.log||[];
+  return(
+    <div style={{background:BG,minHeight:"100vh",paddingBottom:48}}>
+      <div style={{padding:"20px 22px 18px",borderBottom:`1px solid ${BDR}`,display:"flex",alignItems:"center",gap:16}}>
+        <button onClick={onBack} style={{background:"none",border:"none",color:"#555",fontFamily:"monospace",fontSize:10,letterSpacing:2,padding:0}}>← BACK</button>
+        <div style={{fontFamily:"monospace",fontSize:10,color:ACC,letterSpacing:6,fontWeight:"bold"}}>WORKOUT LOG</div>
+      </div>
+      {log.length===0?(
+        <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"80px 32px",textAlign:"center"}}>
+          <div style={{fontFamily:"monospace",fontSize:32,color:"#222",marginBottom:16}}>○</div>
+          <div style={{fontFamily:"monospace",fontSize:11,color:"#444",letterSpacing:3}}>NO SESSIONS YET</div>
+        </div>
+      ):(
+        <div style={{padding:"16px 22px 0"}}>
+          {log.map((entry,i)=>(
+            <div key={i} style={{marginBottom:12,border:`1px solid ${BDR}`,borderRadius:8,overflow:"hidden"}}>
+              <button onClick={()=>setExpanded(expanded===i?null:i)} style={{width:"100%",background:CARD,border:"none",padding:"14px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",textAlign:"left"}}>
+                <div>
+                  <div style={{fontFamily:"monospace",fontSize:9,color:ACC,letterSpacing:3,marginBottom:4}}>{fmtDate(entry.date)}</div>
+                  <div style={{fontSize:17,fontWeight:"bold",color:"#e0e0e0"}}>{entry.tag}</div>
+                  <div style={{fontFamily:"monospace",fontSize:10,color:"#444",marginTop:4}}>
+                    {entry.exercises.length} exercises{entry.durationMins?` · ${entry.durationMins}m`:""}{entry.increases?.length>0?` · ⚡ ${entry.increases.length} increase${entry.increases.length>1?"s":""}` :""}
+                  </div>
+                </div>
+                <div style={{fontFamily:"monospace",fontSize:12,color:"#444"}}>{expanded===i?"▲":"▼"}</div>
+              </button>
+              {expanded===i&&(
+                <div style={{borderTop:`1px solid ${BDR}`}}>
+                  {entry.exercises.map((ex,j)=>(
+                    <div key={ex.name} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 16px",borderBottom:j<entry.exercises.length-1?`1px solid #1a1a1a`:"none",background:j%2===0?BG:"#111"}}>
+                      <div>
+                        <div style={{fontSize:13,color:"#ccc"}}>{ex.name}</div>
+                        <div style={{fontFamily:"monospace",fontSize:10,color:"#444",marginTop:2}}>{ex.sets} sets × {repsStr(ex.rMin,ex.rMax)} reps</div>
+                      </div>
+                      <div style={{fontFamily:"monospace",fontSize:14,color:ex.bw?"#555":ACC,fontWeight:"bold"}}>{ex.bw?"BW":`${ex.weight} lbs`}</div>
+                    </div>
+                  ))}
+                  {entry.increases?.length>0&&(
+                    <div style={{padding:"12px 16px",background:"#0f1a0a",borderTop:`1px solid ${GREEN}22`}}>
+                      <div style={{fontFamily:"monospace",fontSize:9,color:GREEN,letterSpacing:3,marginBottom:8}}>INCREASES UNLOCKED</div>
+                      {entry.increases.map(inc=>(
+                        <div key={inc.name} style={{display:"flex",justifyContent:"space-between",fontSize:13,padding:"4px 0"}}>
+                          <span style={{color:"#888"}}>{inc.name}</span>
+                          <span style={{fontFamily:"monospace",color:GREEN}}>{inc.from} → {inc.to} lbs</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── DONE SCREEN ──────────────────────────────────────────────────────────────
+function DoneScreen({data,doneInfo,onHome}){
+  const{label}=phaseInfo(data.count);
+  const nextDay=PLAN[data.nextDay];
+  const{increases,prevDayIdx,durationMins}=doneInfo||{increases:[],prevDayIdx:0,durationMins:0};
+  return(
+    <div style={{background:BG,minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"0 32px",textAlign:"center"}}>
+      <div style={{width:72,height:72,borderRadius:"50%",border:`2px solid ${GREEN}`,display:"flex",alignItems:"center",justifyContent:"center",marginBottom:24,fontSize:28}}>✓</div>
+      <h1 style={{margin:0,fontSize:38,fontWeight:"bold",letterSpacing:-.5}}>DONE.</h1>
+      <div style={{fontFamily:"monospace",fontSize:11,color:"#555",marginTop:8,letterSpacing:3}}>
+        {PLAN[prevDayIdx]?.tag}{durationMins?` · ${durationMins}m`:""}
+      </div>
+      <div style={{width:36,height:2,background:ACC,margin:"28px auto"}}/>
+      {increases.length>0?(
+        <div style={{width:"100%",background:"#0f1a0a",border:`1px solid ${GREEN}33`,borderLeft:`3px solid ${GREEN}`,padding:"16px",borderRadius:4,textAlign:"left",marginBottom:20}}>
+          <div style={{fontFamily:"monospace",fontSize:9,color:GREEN,letterSpacing:4,marginBottom:12}}>⚡ UNLOCKED NEXT SESSION</div>
+          {increases.map(({name,from,to})=>(
+            <div key={name} style={{display:"flex",justifyContent:"space-between",padding:"7px 0",borderBottom:`1px solid #1a2a12`,fontSize:13}}>
+              <span style={{color:"#aaa"}}>{name}</span>
+              <span style={{fontFamily:"monospace",color:GREEN,fontWeight:"bold"}}>{from} → {to} lbs</span>
+            </div>
+          ))}
+        </div>
+      ):(
+        <div style={{fontFamily:"monospace",fontSize:10,color:"#2a2a2a",marginBottom:20,letterSpacing:2}}>NO WEIGHT CHANGES THIS SESSION</div>
+      )}
+      <div style={{width:"100%",background:CARD,border:`1px solid ${BDR}`,borderRadius:4,padding:"16px",textAlign:"left",marginBottom:20}}>
+        <div style={{fontFamily:"monospace",fontSize:9,color:"#444",letterSpacing:4,marginBottom:8}}>NEXT SESSION</div>
+        <div style={{fontSize:20,fontWeight:"bold"}}>{nextDay.tag}</div>
+        <div style={{fontFamily:"monospace",fontSize:11,color:"#555",marginTop:4}}>{nextDay.exercises.length} exercises</div>
+      </div>
+      <div style={{fontFamily:"monospace",fontSize:10,color:"#333",marginBottom:24}}>{data.count} TOTAL SESSION{data.count!==1?"S":""} LOGGED</div>
+      <button onClick={onHome} style={{background:"transparent",color:ACC,border:`1px solid ${ACC}`,padding:"14px 48px",fontFamily:"monospace",fontSize:13,letterSpacing:4,borderRadius:3}}>HOME</button>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
