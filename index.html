@@ -100,6 +100,10 @@ function App(){
   const [doneInfo,setDoneInfo]=useState(null);
   const [saving,setSaving]=useState(false);
 
+  // Refs so async/effect callbacks always see latest values
+  const userRef=useRef(null); userRef.current=user;
+  const dataRef=useRef(null); dataRef.current=data;
+
   useEffect(()=>{
     auth.getRedirectResult().catch(()=>{});
     return auth.onAuthStateChanged(u=>setUser(u||null));
@@ -111,72 +115,18 @@ function App(){
     ref.get().then(snap=>{
       if(snap.exists){const d=snap.data();if(!d.log)d.log=[];setData(d);}
       else{const f=initData();ref.set(f);setData(f);}
-    }).catch(()=>{setData(initData());});
+    }).catch(()=>setData(initData()));
   },[user]);
 
-  const dataRef=React.useRef(null);
-  dataRef.current=data;
-
-  async function persist(d){
-    setData(d);
-    if(user){setSaving(true);try{await db.collection('users').doc(user.uid).collection('data').doc('workout').set(d);}catch(e){}setSaving(false);}
-  }
-
-  async function signIn(){
-    const p=new firebase.auth.GoogleAuthProvider();
-    try{await auth.signInWithPopup(p);}
-    catch(e){if(e.code==='auth/popup-blocked'||e.code==='auth/operation-not-supported-in-this-environment')await auth.signInWithRedirect(p);}
-  }
-
-  async function signOut(){await auth.signOut();setData(null);setScreen("home");}
-
-  function startWorkout(){
-    const d=data;
-    const weights={...d.weights};
-    Object.entries(d.pending).forEach(([n,nw])=>{weights[n]=nw});
-    persist({...d,weights,pending:{},firstTime:false});
-    const{phase}=phaseInfo(d.count);
-    setWk({dayIndex:d.nextDay,phase,exIdx:0,sessionWeights:{...weights},
-      exercises:PLAN[d.nextDay].exercises.map(e=>({...e,weight:weights[e.name],sets:activeSets(e.sets,phase),done:0,feedback:[]})),
-      history:[],startTime:Date.now()});
-    setScreen("workout");
-  }
-
-  function completeSet(feedback){
-    const prev=wk;
-    const ex=prev.exercises[prev.exIdx];
-    const newDone=ex.done+1;
-    const exDone=newDone>=ex.sets;
-    const wkDone=exDone&&prev.exIdx+1>=prev.exercises.length;
-    const snap={exIdx:prev.exIdx,exercises:JSON.parse(JSON.stringify(prev.exercises))};
-    const exercises=prev.exercises.map((e,i)=>i===prev.exIdx?{...e,done:newDone,feedback:[...e.feedback,feedback]}:e);
-    if(wkDone){
-      finishWorkout(exercises,prev.sessionWeights,prev.dayIndex,prev.startTime);
-      return;
-    }
-    setWk({...prev,exercises,exIdx:exDone?prev.exIdx+1:prev.exIdx,history:[...prev.history,snap]});
-  }
-
-  function undoSet(){
-    setWk(prev=>{
-      if(!prev.history.length)return prev;
-      const last=prev.history[prev.history.length-1];
-      return{...prev,exIdx:last.exIdx,exercises:last.exercises,history:prev.history.slice(0,-1)};
-    });
-  }
-
-  function adjustWeight(name,delta){
-    setWk(prev=>({...prev,
-      sessionWeights:{...prev.sessionWeights,[name]:Math.max(0,(prev.sessionWeights[name]||0)+delta)},
-      exercises:prev.exercises.map(e=>e.name===name?{...e,weight:Math.max(0,e.weight+delta)}:e),
-    }));
-  }
-
-  function finishWorkout(exercises,sessionWeights,dayIndex,startTime){
+  // Watch for workout completion via wk.completed flag
+  useEffect(()=>{
+    if(!wk||!wk.completed)return;
+    const{completedExercises,sessionWeights,dayIndex,startTime}=wk;
     const d=dataRef.current;
-    if(!d){console.error('finishWorkout: data is null');return;}
+    const u=userRef.current;
+    if(!d)return;
     const newSucc={...d.succ},newPending={},increases=[];
-    exercises.forEach(ex=>{
+    completedExercises.forEach(ex=>{
       if(ex.bw||ex.inc===0)return;
       const hard=ex.feedback.filter(f=>f==="hard").length;
       const easy=ex.feedback.filter(f=>f==="easy").length;
@@ -192,22 +142,83 @@ function App(){
     });
     const dur=Math.round((Date.now()-startTime)/60000);
     const entry={date:new Date().toISOString(),dayIndex,tag:PLAN[dayIndex].tag,
-      exercises:exercises.map(e=>({name:e.name,sets:e.done,weight:sessionWeights[e.name],rMin:e.rMin,rMax:e.rMax,bw:e.bw})),
+      exercises:completedExercises.map(e=>({name:e.name,sets:e.done,weight:sessionWeights[e.name],rMin:e.rMin,rMax:e.rMax,bw:e.bw})),
       increases,durationMins:dur};
     const nd={...d,count:d.count+1,nextDay:(d.nextDay+1)%4,
       weights:{...d.weights,...sessionWeights},succ:newSucc,
       pending:{...d.pending,...newPending},log:[entry,...(d.log||[])].slice(0,100)};
-    if(user)db.collection('users').doc(user.uid).collection('data').doc('workout').set(nd).catch(()=>{});
+    if(u)db.collection('users').doc(u.uid).collection('data').doc('workout').set(nd).catch(()=>{});
     setData(nd);
     setDoneInfo({increases,prevDayIdx:dayIndex,durationMins:dur});
+    setWk(null);
     setScreen("done");
+  },[wk]);
+
+  async function saveToFirebase(d){
+    const u=userRef.current;
+    if(u){setSaving(true);try{await db.collection('users').doc(u.uid).collection('data').doc('workout').set(d);}catch(e){}setSaving(false);}
+  }
+
+  async function persist(d){setData(d);await saveToFirebase(d);}
+
+  async function signIn(){
+    const p=new firebase.auth.GoogleAuthProvider();
+    try{await auth.signInWithPopup(p);}
+    catch(e){if(e.code==='auth/popup-blocked'||e.code==='auth/operation-not-supported-in-this-environment')await auth.signInWithRedirect(p);}
+  }
+
+  async function signOut(){await auth.signOut();setData(null);setScreen("home");}
+
+  function startWorkout(){
+    const d=data;
+    const weights={...d.weights};
+    Object.entries(d.pending).forEach(([n,nw])=>{weights[n]=nw});
+    const newData={...d,weights,pending:{},firstTime:false};
+    setData(newData);
+    saveToFirebase(newData);
+    const{phase}=phaseInfo(d.count);
+    setWk({dayIndex:d.nextDay,phase,exIdx:0,sessionWeights:{...weights},
+      exercises:PLAN[d.nextDay].exercises.map(e=>({...e,weight:weights[e.name],sets:activeSets(e.sets,phase),done:0,feedback:[]})),
+      history:[],startTime:Date.now(),completed:false});
+    setScreen("workout");
+  }
+
+  function completeSet(feedback){
+    setWk(prev=>{
+      if(!prev||prev.completed)return prev;
+      const ex=prev.exercises[prev.exIdx];
+      const newDone=ex.done+1;
+      const exDone=newDone>=ex.sets;
+      const wkDone=exDone&&prev.exIdx+1>=prev.exercises.length;
+      const snap={exIdx:prev.exIdx,exercises:JSON.parse(JSON.stringify(prev.exercises))};
+      const exercises=prev.exercises.map((e,i)=>i===prev.exIdx?{...e,done:newDone,feedback:[...e.feedback,feedback]}:e);
+      if(wkDone){
+        // Mark as completed — useEffect will handle the rest with fresh data
+        return{...prev,exercises,completed:true,completedExercises:exercises};
+      }
+      return{...prev,exercises,exIdx:exDone?prev.exIdx+1:prev.exIdx,history:[...prev.history,snap]};
+    });
+  }
+
+  function undoSet(){
+    setWk(prev=>{
+      if(!prev||!prev.history.length)return prev;
+      const last=prev.history[prev.history.length-1];
+      return{...prev,exIdx:last.exIdx,exercises:last.exercises,history:prev.history.slice(0,-1)};
+    });
+  }
+
+  function adjustWeight(name,delta){
+    setWk(prev=>({...prev,
+      sessionWeights:{...prev.sessionWeights,[name]:Math.max(0,(prev.sessionWeights[name]||0)+delta)},
+      exercises:prev.exercises.map(e=>e.name===name?{...e,weight:Math.max(0,e.weight+delta)}:e),
+    }));
   }
 
   function abortWorkout(){
-    if(wk){
-      const d=dataRef.current;
-      if(d){const nd={...d,weights:{...d.weights,...wk.sessionWeights}};setData(nd);if(user)db.collection('users').doc(user.uid).collection('data').doc('workout').set(nd).catch(()=>{});}
-    }
+    const d=dataRef.current;
+    const sw=wk?wk.sessionWeights:{};
+    if(d&&wk){const nd={...d,weights:{...d.weights,...sw}};setData(nd);saveToFirebase(nd);}
     setWk(null);setScreen("home");
   }
 
@@ -216,7 +227,7 @@ function App(){
   if(user===undefined)return <Loader/>;
   if(!user)return <AuthScreen onSignIn={signIn}/>;
   if(!data)return <Loader/>;
-  if(screen==="workout"&&wk)return <WorkoutScreen wk={wk} onComplete={completeSet} onUndo={undoSet} onAdjustWeight={adjustWeight} onAbort={abortWorkout}/>;
+  if(screen==="workout"&&wk&&!wk.completed)return <WorkoutScreen wk={wk} onComplete={completeSet} onUndo={undoSet} onAdjustWeight={adjustWeight} onAbort={abortWorkout}/>;
   if(screen==="done")return <DoneScreen data={data} doneInfo={doneInfo} onHome={()=>setScreen("home")}/>;
   if(screen==="log")return <LogScreen data={data} onBack={()=>setScreen("home")}/>;
   return <HomeScreen data={data} onStart={startWorkout} onReset={resetData} onLog={()=>setScreen("log")} onSignOut={signOut} saving={saving}/>;
