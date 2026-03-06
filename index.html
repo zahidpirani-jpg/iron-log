@@ -192,8 +192,11 @@ function App(){
         weights:{...d.weights,...sessionWeights},succ:newSucc,
         pending:{...d.pending,...newPending},log:[entry,...(d.log||[])].slice(0,100)};
       if(user)db.collection('users').doc(user.uid).collection('data').doc('workout').set(nd).catch(()=>{});
-      setDoneInfo({increases,prevDayIdx:dayIndex,durationMins:dur});
-      setScreen("done");
+      // Schedule screen transition outside of state updater
+      setTimeout(()=>{
+        setDoneInfo({increases,prevDayIdx:dayIndex,durationMins:dur});
+        setScreen("done");
+      },0);
       return nd;
     });
   }
