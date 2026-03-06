@@ -108,11 +108,14 @@ function App(){
   useEffect(()=>{
     if(!user)return;
     const ref=db.collection('users').doc(user.uid).collection('data').doc('workout');
-    return ref.onSnapshot(snap=>{
+    ref.get().then(snap=>{
       if(snap.exists){const d=snap.data();if(!d.log)d.log=[];setData(d);}
       else{const f=initData();ref.set(f);setData(f);}
-    },()=>{});
+    }).catch(()=>{setData(initData());});
   },[user]);
+
+  const dataRef=React.useRef(null);
+  dataRef.current=data;
 
   async function persist(d){
     setData(d);
@@ -140,16 +143,18 @@ function App(){
   }
 
   function completeSet(feedback){
-    setWk(prev=>{
-      const ex=prev.exercises[prev.exIdx];
-      const newDone=ex.done+1;
-      const exDone=newDone>=ex.sets;
-      const wkDone=exDone&&prev.exIdx+1>=prev.exercises.length;
-      const snap={exIdx:prev.exIdx,exercises:JSON.parse(JSON.stringify(prev.exercises))};
-      const exercises=prev.exercises.map((e,i)=>i===prev.exIdx?{...e,done:newDone,feedback:[...e.feedback,feedback]}:e);
-      if(wkDone){setTimeout(()=>finishWorkout(exercises,prev.sessionWeights,prev.dayIndex,prev.startTime),0);return prev;}
-      return{...prev,exercises,exIdx:exDone?prev.exIdx+1:prev.exIdx,history:[...prev.history,snap]};
-    });
+    const prev=wk;
+    const ex=prev.exercises[prev.exIdx];
+    const newDone=ex.done+1;
+    const exDone=newDone>=ex.sets;
+    const wkDone=exDone&&prev.exIdx+1>=prev.exercises.length;
+    const snap={exIdx:prev.exIdx,exercises:JSON.parse(JSON.stringify(prev.exercises))};
+    const exercises=prev.exercises.map((e,i)=>i===prev.exIdx?{...e,done:newDone,feedback:[...e.feedback,feedback]}:e);
+    if(wkDone){
+      finishWorkout(exercises,prev.sessionWeights,prev.dayIndex,prev.startTime);
+      return;
+    }
+    setWk({...prev,exercises,exIdx:exDone?prev.exIdx+1:prev.exIdx,history:[...prev.history,snap]});
   }
 
   function undoSet(){
@@ -168,41 +173,41 @@ function App(){
   }
 
   function finishWorkout(exercises,sessionWeights,dayIndex,startTime){
-    setData(d=>{
-      const newSucc={...d.succ},newPending={},increases=[];
-      exercises.forEach(ex=>{
-        if(ex.bw||ex.inc===0)return;
-        const hard=ex.feedback.filter(f=>f==="hard").length;
-        const easy=ex.feedback.filter(f=>f==="easy").length;
-        const tot=ex.feedback.length;
-        if(hard>tot/2){newSucc[ex.name]=0;return;}
-        newSucc[ex.name]=(newSucc[ex.name]||0)+1;
-        if(newSucc[ex.name]>=2){
-          const nw=sessionWeights[ex.name]+ex.inc*(easy>tot/2?2:1);
-          newPending[ex.name]=nw;
-          increases.push({name:ex.name,from:sessionWeights[ex.name],to:nw});
-          newSucc[ex.name]=0;
-        }
-      });
-      const dur=Math.round((Date.now()-startTime)/60000);
-      const entry={date:new Date().toISOString(),dayIndex,tag:PLAN[dayIndex].tag,
-        exercises:exercises.map(e=>({name:e.name,sets:e.done,weight:sessionWeights[e.name],rMin:e.rMin,rMax:e.rMax,bw:e.bw})),
-        increases,durationMins:dur};
-      const nd={...d,count:d.count+1,nextDay:(d.nextDay+1)%4,
-        weights:{...d.weights,...sessionWeights},succ:newSucc,
-        pending:{...d.pending,...newPending},log:[entry,...(d.log||[])].slice(0,100)};
-      if(user)db.collection('users').doc(user.uid).collection('data').doc('workout').set(nd).catch(()=>{});
-      // Schedule screen transition outside of state updater
-      setTimeout(()=>{
-        setDoneInfo({increases,prevDayIdx:dayIndex,durationMins:dur});
-        setScreen("done");
-      },0);
-      return nd;
+    const d=dataRef.current;
+    if(!d){console.error('finishWorkout: data is null');return;}
+    const newSucc={...d.succ},newPending={},increases=[];
+    exercises.forEach(ex=>{
+      if(ex.bw||ex.inc===0)return;
+      const hard=ex.feedback.filter(f=>f==="hard").length;
+      const easy=ex.feedback.filter(f=>f==="easy").length;
+      const tot=ex.feedback.length;
+      if(hard>tot/2){newSucc[ex.name]=0;return;}
+      newSucc[ex.name]=(newSucc[ex.name]||0)+1;
+      if(newSucc[ex.name]>=2){
+        const nw=sessionWeights[ex.name]+ex.inc*(easy>tot/2?2:1);
+        newPending[ex.name]=nw;
+        increases.push({name:ex.name,from:sessionWeights[ex.name],to:nw});
+        newSucc[ex.name]=0;
+      }
     });
+    const dur=Math.round((Date.now()-startTime)/60000);
+    const entry={date:new Date().toISOString(),dayIndex,tag:PLAN[dayIndex].tag,
+      exercises:exercises.map(e=>({name:e.name,sets:e.done,weight:sessionWeights[e.name],rMin:e.rMin,rMax:e.rMax,bw:e.bw})),
+      increases,durationMins:dur};
+    const nd={...d,count:d.count+1,nextDay:(d.nextDay+1)%4,
+      weights:{...d.weights,...sessionWeights},succ:newSucc,
+      pending:{...d.pending,...newPending},log:[entry,...(d.log||[])].slice(0,100)};
+    if(user)db.collection('users').doc(user.uid).collection('data').doc('workout').set(nd).catch(()=>{});
+    setData(nd);
+    setDoneInfo({increases,prevDayIdx:dayIndex,durationMins:dur});
+    setScreen("done");
   }
 
   function abortWorkout(){
-    if(wk){setData(d=>{const nd={...d,weights:{...d.weights,...wk.sessionWeights}};if(user)db.collection('users').doc(user.uid).collection('data').doc('workout').set(nd).catch(()=>{});return nd;});}
+    if(wk){
+      const d=dataRef.current;
+      if(d){const nd={...d,weights:{...d.weights,...wk.sessionWeights}};setData(nd);if(user)db.collection('users').doc(user.uid).collection('data').doc('workout').set(nd).catch(()=>{});}
+    }
     setWk(null);setScreen("home");
   }
 
